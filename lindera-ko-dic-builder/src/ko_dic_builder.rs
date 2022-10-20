@@ -51,15 +51,10 @@ impl DictionaryBuilder for KoDicBuilder {
     fn build_dictionary(&self, input_dir: &Path, output_dir: &Path) -> LinderaResult<()> {
         fs::create_dir_all(&output_dir)
             .map_err(|err| LinderaErrorKind::Io.with_error(anyhow::anyhow!(err)))?;
-        println!("step 1");
         let chardef = self.build_chardef(input_dir, output_dir).unwrap();
-        println!("step 2");
         self.build_unk(input_dir, &chardef, output_dir).unwrap();
-        println!("step 3");
         self.build_dict(input_dir, output_dir).unwrap();
-        println!("step 4");
         self.build_cost_matrix(input_dir, output_dir).unwrap();
-        println!("Done");
         Ok(())
     }
 
