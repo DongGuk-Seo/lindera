@@ -1,108 +1,76 @@
-use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read};
+use std::fs;
+use std::io::{self, BufRead, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use clap::{Parser, Subcommand};
+use clap::{AppSettings, Parser};
 
-use lindera::analyzer::Analyzer;
-use lindera::builder::{build_dictionary, build_user_dictionary};
-use lindera::error::{LinderaError, LinderaErrorKind};
+use lindera::error::LinderaError;
+use lindera::error::LinderaErrorKind;
 use lindera::mode::Mode;
-use lindera::tokenizer::{
-    DictionaryConfig, Tokenizer, TokenizerConfig, UserDictionaryConfig, CONTAINED_DICTIONARIES,
-};
-use lindera::{DictionaryKind, LinderaResult};
+use lindera::tokenizer::DictionaryConfig;
+use lindera::tokenizer::DictionaryKind;
+use lindera::tokenizer::DictionarySourceType;
+use lindera::tokenizer::UserDictionaryConfig;
+use lindera::tokenizer::DEFAULT_DICTIONARY_KIND;
+use lindera::tokenizer::{Tokenizer, TokenizerConfig};
+use lindera::LinderaResult;
 
-#[derive(Debug, Parser)]
-#[clap(name = "linera", author, about, version)]
+/// Lindera CLI
+#[derive(Parser, Debug)]
+#[clap(version, about, setting = AppSettings::DeriveDisplayOrder)]
 struct Args {
-    #[clap(subcommand)]
-    command: Commands,
-}
+    /// The dictionary type.
+    #[clap(
+        short = 'k',
+        long = "dictionary-kind",
+        value_name = "DICTIONARY_KIND",
+        default_value = DEFAULT_DICTIONARY_KIND
+    )]
+    dictionary_kind: DictionaryKind,
 
-#[derive(Debug, Subcommand)]
-enum Commands {
-    List(ListArgs),
-    Tokenize(TokenizeArgs),
-    Analyze(AnalyzeArgs),
-    Build(BuildArgs),
-}
+    /// Directory path of the dictionary. If specified, loads the specified directory as the specified dictionary kind. If omitted, the self-contained dictionary specified by dictionary kind is loaded.
+    #[clap(short = 'd', long = "dictionary-path", value_name = "DICTIONARY_PATH")]
+    dictionary_path: Option<PathBuf>,
 
-#[derive(Debug, clap::Args)]
-#[clap(
-    author,
-    about = "List a contained morphological analysis dictionaries",
-    version
-)]
-struct ListArgs {}
-
-#[derive(Debug, clap::Args)]
-#[clap(
-    author,
-    about = "Tokenize text using a morphological analysis dictionary",
-    version
-)]
-struct TokenizeArgs {
-    #[clap(short = 't', long = "dic-type", help = "Dictionary type")]
-    dic_type: Option<DictionaryKind>,
-    #[clap(short = 'd', long = "dic-dir", help = "Dictionary directory path")]
-    dic_dir: Option<PathBuf>,
+    /// The user dictionary file path. If specified, loads the specified file as a user dictionary.
     #[clap(
         short = 'u',
-        long = "user-dic-file",
-        help = "User dictionary file path"
+        long = "user-dictionary-path",
+        value_name = "USER_DICTIONARY_PATH"
     )]
-    user_dic_file: Option<PathBuf>,
+    user_dictionary_path: Option<PathBuf>,
+
+    /// The user dictionary source type. Enabled when a user dictionary is specified. Default is "csv".
+    #[clap(
+        short = 't',
+        long = "user-dictionary-source-type",
+        value_name = "USER_DICTIONARY_SOURCE_TYPE",
+        default_value = "csv"
+    )]
+    user_dictionary_source_type: DictionarySourceType,
+
+    /// The tokenization mode. normal, search and decompose are available.
     #[clap(
         short = 'm',
         long = "mode",
-        default_value = "normal",
-        help = "Tokenization mode. normal"
+        value_name = "MODE",
+        default_value = "normal"
     )]
     mode: Mode,
+
+    /// The output format. mecab, wakati or json can be specified. If not specified, use the default output format.
     #[clap(
-        short = 'o',
+        short = 'O',
         long = "output-format",
-        default_value = "mecab",
-        help = "Output format"
+        value_name = "OUTPUT_FORMAT",
+        default_value = "mecab"
     )]
     output_format: String,
-    #[clap(help = "Input text file path")]
-    input_file: Option<PathBuf>,
-}
 
-#[derive(Debug, clap::Args)]
-#[clap(
-    author,
-    about = "Analyze text with character filters, tokenizer and token filters ",
-    version
-)]
-struct AnalyzeArgs {
-    #[clap(short = 'c', long = "config", help = "Configuration file path")]
-    config_path: PathBuf,
-    #[clap(
-        short = 'o',
-        long = "output-format",
-        default_value = "mecab",
-        help = "Output format"
-    )]
-    output_format: String,
-    #[clap(help = "Input text file path")]
-    input_file: Option<PathBuf>,
-}
-
-#[derive(Debug, clap::Args)]
-#[clap(author, about = "Build a morphological analysis dictionary", version)]
-struct BuildArgs {
-    #[clap(short = 'u', long = "build-user-dic", help = "Build user dictionary")]
-    build_user_dic: bool,
-    #[clap(short = 't', long = "dic-type", help = "Dictionary type")]
-    dic_type: DictionaryKind,
-    #[clap(help = "Dictionary source path")]
-    src_path: PathBuf,
-    #[clap(help = "Dictionary destination path")]
-    dest_path: PathBuf,
+    /// The input file path that contains the text for morphological analysis.
+    #[clap(value_name = "INPUT_FILE")]
+    input_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -129,38 +97,23 @@ impl FromStr for Format {
 fn main() -> LinderaResult<()> {
     let args = Args::parse();
 
-    match args.command {
-        Commands::List(args) => list(args),
-        Commands::Tokenize(args) => tokenize(args),
-        Commands::Analyze(args) => analyze(args),
-        Commands::Build(args) => build(args),
-    }
-}
-
-fn list(_args: ListArgs) -> LinderaResult<()> {
-    for dic in CONTAINED_DICTIONARIES {
-        println!("{}", dic);
-    }
-    Ok(())
-}
-
-fn tokenize(args: TokenizeArgs) -> LinderaResult<()> {
-    let dictionary_conf = DictionaryConfig {
-        kind: args.dic_type.clone(),
-        path: args.dic_dir,
+    let dictionary_meta = DictionaryConfig {
+        kind: args.dictionary_kind.clone(),
+        path: args.dictionary_path,
     };
 
-    let user_dictionary_conf = match args.user_dic_file {
+    let user_dictionary_meta = match args.user_dictionary_path {
         Some(path) => Some(UserDictionaryConfig {
-            kind: args.dic_type,
+            kind: args.dictionary_kind,
+            source_type: args.user_dictionary_source_type,
             path,
         }),
         None => None,
     };
 
     let config = TokenizerConfig {
-        dictionary: dictionary_conf,
-        user_dictionary: user_dictionary_conf,
+        dictionary: dictionary_meta,
+        user_dictionary: user_dictionary_meta,
         mode: args.mode,
     };
 
@@ -191,29 +144,26 @@ fn tokenize(args: TokenizeArgs) -> LinderaResult<()> {
         }
         text = text.trim().to_string();
 
+        // tokenize
+        let tokens = tokenizer.tokenize(&text)?;
+
         match output_format {
             Format::Mecab => {
-                let tokens = tokenizer.tokenize_with_details(&text)?;
+                // output result
                 for token in tokens {
                     println!(
                         "{}\t{}",
                         token.text,
-                        token
-                            .details
-                            .unwrap_or_default()
-                            .iter()
-                            .map(|d| d.to_string())
-                            .collect::<Vec<_>>()
-                            .join(",")
+                        tokenizer.word_detail(token.word_id)?.join(",")
                     );
                 }
                 println!("EOS");
             }
             Format::Json => {
-                let tokens = tokenizer.tokenize_with_details(&text)?;
+                // output result
                 let mut tokens_json = Vec::new();
                 for token in tokens {
-                    let word_detail = token.details.unwrap_or_default();
+                    let word_detail = tokenizer.word_detail(token.word_id)?;
                     let token_info = serde_json::json!({
                         "text": token.text,
                         "detail": word_detail,
@@ -228,7 +178,7 @@ fn tokenize(args: TokenizeArgs) -> LinderaResult<()> {
                 );
             }
             Format::Wakati => {
-                let tokens = tokenizer.tokenize(&text)?;
+                // output result
                 let mut it = tokens.iter().peekable();
                 while let Some(token) = it.next() {
                     if it.peek().is_some() {
@@ -242,97 +192,4 @@ fn tokenize(args: TokenizeArgs) -> LinderaResult<()> {
     }
 
     Ok(())
-}
-
-fn analyze(args: AnalyzeArgs) -> LinderaResult<()> {
-    let mut config_file = File::open(args.config_path)
-        .map_err(|err| LinderaErrorKind::Io.with_error(anyhow::anyhow!(err)))?;
-    let mut config_bytes = Vec::new();
-    config_file
-        .read_to_end(&mut config_bytes)
-        .map_err(|err| LinderaErrorKind::Io.with_error(anyhow::anyhow!(err)))?;
-
-    let analyzer = Analyzer::from_slice(&config_bytes)
-        .map_err(|err| LinderaErrorKind::Io.with_error(anyhow::anyhow!(err)))?;
-
-    // output format
-    let output_format = Format::from_str(args.output_format.as_str())?;
-
-    // input file
-    let mut reader: Box<dyn BufRead> = if let Some(input_file) = args.input_file {
-        Box::new(BufReader::new(fs::File::open(input_file).map_err(
-            |err| LinderaErrorKind::Io.with_error(anyhow::anyhow!(err)),
-        )?))
-    } else {
-        Box::new(BufReader::new(io::stdin()))
-    };
-
-    loop {
-        // read the text to be tokenized from stdin
-        let mut text = String::new();
-        let size = reader
-            .read_line(&mut text)
-            .map_err(|err| LinderaErrorKind::Io.with_error(anyhow::anyhow!(err)))?;
-        if size == 0 {
-            // EOS
-            break;
-        }
-        text = text.trim().to_string();
-
-        let tokens = analyzer.analyze(&mut text)?;
-        match output_format {
-            Format::Mecab => {
-                for token in tokens {
-                    println!(
-                        "{}\t{}",
-                        token.text,
-                        token
-                            .details
-                            .unwrap_or_default()
-                            .iter()
-                            .map(|d| d.to_string())
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    );
-                }
-                println!("EOS");
-            }
-            Format::Json => {
-                let mut tokens_json = Vec::new();
-                for token in tokens {
-                    let word_details = token.details.unwrap_or_default();
-                    let token_info = serde_json::json!({
-                        "text": token.text,
-                        "details": word_details,
-                    });
-                    tokens_json.push(token_info);
-                }
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&tokens_json).map_err(|err| {
-                        LinderaErrorKind::Serialize.with_error(anyhow::anyhow!(err))
-                    })?
-                );
-            }
-            Format::Wakati => {
-                let mut it = tokens.iter().peekable();
-                while let Some(token) = it.next() {
-                    if it.peek().is_some() {
-                        print!("{} ", token.text);
-                    } else {
-                        println!("{}", token.text);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-fn build(args: BuildArgs) -> LinderaResult<()> {
-    if args.build_user_dic {
-        build_user_dictionary(args.dic_type, &args.src_path, &args.dest_path)
-    } else {
-        build_dictionary(args.dic_type, &args.src_path, &args.dest_path)
-    }
 }

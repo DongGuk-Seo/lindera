@@ -5,33 +5,33 @@ use lindera::LinderaResult;
 #[cfg(feature = "unidic")]
 use lindera::{
     mode::Mode,
-    tokenizer::{DictionaryConfig, Tokenizer, TokenizerConfig, UserDictionaryConfig},
-    DictionaryKind,
+    tokenizer::{
+        DictionaryConfig, DictionaryKind, DictionarySourceType, Tokenizer, TokenizerConfig,
+        UserDictionaryConfig,
+    },
 };
 
 fn main() -> LinderaResult<()> {
     #[cfg(feature = "unidic")]
     {
         let dictionary = DictionaryConfig {
-            kind: Some(DictionaryKind::UniDic),
+            kind: DictionaryKind::UniDic,
             path: None,
         };
 
         let user_dictionary = Some(UserDictionaryConfig {
-            kind: Some(DictionaryKind::UniDic),
-            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../resources")
-                .join("unidic_simple_userdic.csv"),
+            kind: DictionaryKind::UniDic,
+            source_type: DictionarySourceType::Csv,
+            path: PathBuf::from("./resources/simple_userdic.csv"),
         });
 
+        // create tokenizer
         let config = TokenizerConfig {
             dictionary,
             user_dictionary: user_dictionary,
             mode: Mode::Normal,
         };
-
-        #[allow(unused_variables)]
-        let tokenizer = Tokenizer::with_config(config).unwrap();
+        let tokenizer = Tokenizer::with_config(config)?;
 
         // tokenize the text
         let tokens =

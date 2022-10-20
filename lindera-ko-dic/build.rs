@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Dictionary file name
         let dict_file_name = "mecab-ko-dic-2.1.1-20180720.tar.gz";
-
+        println!("thlee 1 {:?}", resources_dir_path.join(dict_file_name));
         // Source dictionary file path
         let source_dict_file_path = resources_dir_path.join(dict_file_name);
 
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Build a dictionary
     let builder = KoDicBuilder::new();
     builder.build_dictionary(&input_dir, &output_dir)?;
-
+    println!("New");
     Ok(())
 }
 

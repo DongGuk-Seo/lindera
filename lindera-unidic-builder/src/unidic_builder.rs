@@ -8,6 +8,7 @@ use std::{fs, u32};
 use byteorder::{LittleEndian, WriteBytesExt};
 use csv::StringRecord;
 use glob::glob;
+use lindera_core::prefix_dict::PrefixDict;
 use log::debug;
 use yada::builder::DoubleArrayBuilder;
 use yada::DoubleArray;
@@ -18,7 +19,6 @@ use lindera_core::character_definition::{CharacterDefinitions, CharacterDefiniti
 use lindera_core::dictionary_builder::DictionaryBuilder;
 use lindera_core::error::LinderaErrorKind;
 use lindera_core::file_util::read_utf8_file;
-use lindera_core::prefix_dict::PrefixDict;
 use lindera_core::unknown_dictionary::parse_unk;
 use lindera_core::user_dictionary::UserDictionary;
 use lindera_core::word_entry::{WordEntry, WordId};
@@ -266,7 +266,7 @@ impl DictionaryBuilder for UnidicBuilder {
         let mut keyset: Vec<(&[u8], u32)> = vec![];
         for (key, word_entries) in &word_entry_map {
             let len = word_entries.len() as u32;
-            let val = (id << 5) | len; // 27bit for word ID, 5bit for different parts of speech on the same surface.
+            let val = (id << 5) | len;
             keyset.push((key.as_bytes(), val));
             id += len;
         }
